@@ -95,6 +95,40 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+const STORAGE_KEYS = { formDraft: 'worldWantedFormDraft', messagesCache: 'worldWantedMessagesCache' };
+
+function saveFormDraft() {
+    if (document.getElementById("editId").value) return;
+    const draft = {
+        message: document.getElementById("nameInput").value,
+        location: document.getElementById("locationInput").value,
+        country: document.getElementById("countryInput").value,
+        dob: document.getElementById("dobInput").value,
+        cnicId: document.getElementById("cnicInput").value,
+        address: document.getElementById("addressInput").value
+    };
+    try { localStorage.setItem(STORAGE_KEYS.formDraft, JSON.stringify(draft)); } catch (e) {}
+}
+
+function loadFormDraft() {
+    if (document.getElementById("editId").value) return;
+    try {
+        const raw = localStorage.getItem(STORAGE_KEYS.formDraft);
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        document.getElementById("nameInput").value = draft.message || '';
+        document.getElementById("locationInput").value = draft.location || '';
+        document.getElementById("countryInput").value = draft.country || '';
+        document.getElementById("dobInput").value = draft.dob || '';
+        document.getElementById("cnicInput").value = draft.cnicId || '';
+        document.getElementById("addressInput").value = draft.address || '';
+    } catch (e) {}
+}
+
+function clearFormDraft() {
+    try { localStorage.removeItem(STORAGE_KEYS.formDraft); } catch (e) {}
+}
+
 function getMessageId(item) {
     if (!item || item._id == null) return '';
     if (typeof item._id === 'string') return item._id;
@@ -123,62 +157,59 @@ function sendMessage() {
     });
 }
 
+function renderTable() {
+    const data = window.messagesData || [];
+    const tbody = document.getElementById("messagesBody");
+    tbody.innerHTML = "";
+    data.forEach(item => {
+        const tr = document.createElement("tr");
+        const tdMessage = document.createElement("td");
+        tdMessage.textContent = item.message || '';
+        tr.appendChild(tdMessage);
+        const tdLocation = document.createElement("td");
+        tdLocation.textContent = item.location || '';
+        tr.appendChild(tdLocation);
+        const tdCountry = document.createElement("td");
+        tdCountry.textContent = item.country || '';
+        tr.appendChild(tdCountry);
+        const tdDob = document.createElement("td");
+        tdDob.textContent = item.dob || '';
+        tr.appendChild(tdDob);
+        const tdCnic = document.createElement("td");
+        tdCnic.textContent = item.cnicId || '';
+        tr.appendChild(tdCnic);
+        const tdAddress = document.createElement("td");
+        tdAddress.textContent = item.address || '';
+        tr.appendChild(tdAddress);
+        const tdActions = document.createElement("td");
+        const editBtn = document.createElement("button");
+        editBtn.className = "btn btn-secondary";
+        editBtn.textContent = "Edit";
+        editBtn.onclick = () => editMessage(item);
+        const mapBtn = document.createElement("button");
+        mapBtn.className = "btn btn-secondary";
+        mapBtn.textContent = "Map";
+        mapBtn.onclick = () => showOnMap(item);
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn btn-secondary";
+        delBtn.textContent = "Delete";
+        delBtn.onclick = () => deleteMessage(getMessageId(item));
+        tdActions.appendChild(editBtn);
+        tdActions.appendChild(mapBtn);
+        tdActions.appendChild(delBtn);
+        tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+    });
+    populateRouteDropdowns();
+}
+
 function loadMessages() {
     fetch('/api/messages')
     .then(res => res.json())
     .then(data => {
-        const tbody = document.getElementById("messagesBody");
-        tbody.innerHTML = "";
-
         window.messagesData = data;
-        data.forEach(item => {
-            const tr = document.createElement("tr");
-
-            const tdMessage = document.createElement("td");
-            tdMessage.textContent = item.message || '';
-            tr.appendChild(tdMessage);
-
-            const tdLocation = document.createElement("td");
-            tdLocation.textContent = item.location || '';
-            tr.appendChild(tdLocation);
-
-            const tdCountry = document.createElement("td");
-            tdCountry.textContent = item.country || '';
-            tr.appendChild(tdCountry);
-
-            const tdDob = document.createElement("td");
-            tdDob.textContent = item.dob || '';
-            tr.appendChild(tdDob);
-
-            const tdCnic = document.createElement("td");
-            tdCnic.textContent = item.cnicId || '';
-            tr.appendChild(tdCnic);
-
-            const tdAddress = document.createElement("td");
-            tdAddress.textContent = item.address || '';
-            tr.appendChild(tdAddress);
-
-            const tdActions = document.createElement("td");
-            const editBtn = document.createElement("button");
-            editBtn.className = "btn btn-secondary";
-            editBtn.textContent = "Edit";
-            editBtn.onclick = () => editMessage(item);
-            const mapBtn = document.createElement("button");
-            mapBtn.className = "btn btn-secondary";
-            mapBtn.textContent = "Map";
-            mapBtn.onclick = () => showOnMap(item);
-            const delBtn = document.createElement("button");
-            delBtn.className = "btn btn-secondary";
-            delBtn.textContent = "Delete";
-            delBtn.onclick = () => deleteMessage(getMessageId(item));
-            tdActions.appendChild(editBtn);
-            tdActions.appendChild(mapBtn);
-            tdActions.appendChild(delBtn);
-            tr.appendChild(tdActions);
-
-            tbody.appendChild(tr);
-        });
-        populateRouteDropdowns();
+        try { localStorage.setItem(STORAGE_KEYS.messagesCache, JSON.stringify(data)); } catch (e) {}
+        renderTable();
     });
 }
 
@@ -220,6 +251,7 @@ function cancelEdit() {
     document.getElementById("dobInput").value = '';
     document.getElementById("cnicInput").value = '';
     document.getElementById("addressInput").value = '';
+    loadFormDraft();
 }
 
 function saveOrUpdate() {
@@ -242,6 +274,7 @@ function saveOrUpdate() {
         .then(({ ok, data }) => {
             if (ok && data.success) {
                 alert("Updated!");
+                clearFormDraft();
                 cancelEdit();
                 loadMessages();
             } else {
@@ -258,6 +291,7 @@ function saveOrUpdate() {
         .then(res => res.json())
         .then(data => {
             alert("Saved!");
+            clearFormDraft();
             loadMessages();
         });
     }
@@ -276,8 +310,20 @@ function deleteMessage(id) {
 
 // Load saved messages when the page loads or is refreshed
 document.addEventListener('DOMContentLoaded', () => {
+    loadFormDraft();
+    try {
+        const cached = localStorage.getItem(STORAGE_KEYS.messagesCache);
+        if (cached) {
+            window.messagesData = JSON.parse(cached);
+            renderTable();
+        }
+    } catch (e) {}
     loadMessages();
     initMap();
+    ['nameInput', 'locationInput', 'countryInput', 'dobInput', 'cnicInput', 'addressInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', saveFormDraft);
+    });
 });
 
 // ---- Map & Route (Leaflet + OpenStreetMap, free) ----
