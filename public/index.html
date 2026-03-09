@@ -1,19 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MongoDB Messages Dashboard</title>
+    <title>World's Most Wanted Dashboard</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
 </head>
 <body>
 
 <div class="page">
-    <h1>MongoDB Messages</h1>
-    <div class="subtitle">Capture and review messages stored in your MongoDB collection.</div>
+    <h1>World's Most Wanted Dashboard</h1>
+    <div class="subtitle">Capture and review messages stored in your MongoDB collection. Find the most wanted criminals in Pakistan and bring them to justice.</div>
 
     <div class="form-row">
         <div class="form-field">
-            <label for="messageInput">Message</label>
-            <input type="text" id="messageInput" placeholder="Enter message">
+            <label for="nameInput">Full Name</label>
+            <input type="text" id="nameInput" placeholder="Enter Full Name">
         </div>
         <div class="form-field">
             <label for="locationInput">Location</label>
@@ -26,6 +27,10 @@
         <div class="form-field">
             <label for="dobInput">Date of birth</label>
             <input type="date" id="dobInput">
+        </div>
+        <div class="form-field">
+            <label for="cnicInput">CNIC ID</label>
+            <input type="text" id="cnicInput" placeholder="e.g. 35201-1234567-1" maxlength="15" pattern="[0-9]{5}-[0-9]{7}-[0-9]">
         </div>
         <div class="form-field">
             <label for="addressInput">Address</label>
@@ -52,6 +57,7 @@
                     <th>Location</th>
                     <th>Country</th>
                     <th>DOB</th>
+                    <th>CNIC ID</th>
                     <th>Address</th>
                     <th>Actions</th>
                 </tr>
@@ -60,8 +66,34 @@
             </tbody>
         </table>
     </div>
+
+    <div class="map-card">
+        <div class="table-header">
+            <div class="table-header-title">Map &amp; Route</div>
+            <div class="table-header-caption">Show locations and get driving directions between two records.</div>
+        </div>
+        <div class="route-controls">
+            <div class="route-row">
+                <label>From</label>
+                <select id="routeFrom">
+                    <option value="">Select start location</option>
+                </select>
+            </div>
+            <div class="route-row">
+                <label>To</label>
+                <select id="routeTo">
+                    <option value="">Select end location</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" onclick="getRoute()">Get Route</button>
+            <button class="btn btn-secondary" onclick="testLahoreRoute()">Test: Eden Ave → Netsol</button>
+            <button class="btn btn-secondary" onclick="clearRoute()">Clear Route</button>
+        </div>
+        <div id="map" class="map-container"></div>
+    </div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 function getMessageId(item) {
     if (!item || item._id == null) return '';
@@ -71,10 +103,11 @@ function getMessageId(item) {
 }
 
 function sendMessage() {
-    const message = document.getElementById("messageInput").value;
+    const message = document.getElementById("nameInput").value;
     const location = document.getElementById("locationInput").value;
     const country = document.getElementById("countryInput").value;
     const dob = document.getElementById("dobInput").value;
+    const cnicId = document.getElementById("cnicInput").value;
     const address = document.getElementById("addressInput").value;
 
     fetch('/api/message', {
@@ -82,7 +115,7 @@ function sendMessage() {
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ message, location, country, dob, address})
+        body: JSON.stringify({ message, location, country, dob, cnicId, address})
     })
     .then(res => res.json())
     .then(data => {
@@ -97,6 +130,7 @@ function loadMessages() {
         const tbody = document.getElementById("messagesBody");
         tbody.innerHTML = "";
 
+        window.messagesData = data;
         data.forEach(item => {
             const tr = document.createElement("tr");
 
@@ -116,6 +150,10 @@ function loadMessages() {
             tdDob.textContent = item.dob || '';
             tr.appendChild(tdDob);
 
+            const tdCnic = document.createElement("td");
+            tdCnic.textContent = item.cnicId || '';
+            tr.appendChild(tdCnic);
+
             const tdAddress = document.createElement("td");
             tdAddress.textContent = item.address || '';
             tr.appendChild(tdAddress);
@@ -125,24 +163,47 @@ function loadMessages() {
             editBtn.className = "btn btn-secondary";
             editBtn.textContent = "Edit";
             editBtn.onclick = () => editMessage(item);
+            const mapBtn = document.createElement("button");
+            mapBtn.className = "btn btn-secondary";
+            mapBtn.textContent = "Map";
+            mapBtn.onclick = () => showOnMap(item);
             const delBtn = document.createElement("button");
             delBtn.className = "btn btn-secondary";
             delBtn.textContent = "Delete";
             delBtn.onclick = () => deleteMessage(getMessageId(item));
             tdActions.appendChild(editBtn);
+            tdActions.appendChild(mapBtn);
             tdActions.appendChild(delBtn);
             tr.appendChild(tdActions);
 
             tbody.appendChild(tr);
         });
+        populateRouteDropdowns();
     });
 }
 
+function buildAddressQuery(item) {
+    const parts = [item.address, item.location, item.country].filter(Boolean);
+    return parts.join(', ') || 'unknown';
+}
+
+function populateRouteDropdowns() {
+    const data = window.messagesData || [];
+    const opts = data.map((item, i) => {
+        const label = buildAddressQuery(item) || `Record ${i + 1}`;
+        return `<option value="${i}">${label}</option>`;
+    });
+    const base = '<option value="">Select location</option>';
+    document.getElementById('routeFrom').innerHTML = base + opts.join('');
+    document.getElementById('routeTo').innerHTML = base + opts.join('');
+}
+
 function editMessage(item) {
-    document.getElementById("messageInput").value = item.message || '';
+    document.getElementById("nameInput").value = item.message || '';
     document.getElementById("locationInput").value = item.location || '';
     document.getElementById("countryInput").value = item.country || '';
     document.getElementById("dobInput").value = item.dob || '';
+    document.getElementById("cnicInput").value = item.cnicId || '';
     document.getElementById("addressInput").value = item.address || '';
     document.getElementById("editId").value = getMessageId(item);
     document.getElementById("saveBtn").textContent = "Update";
@@ -153,21 +214,23 @@ function cancelEdit() {
     document.getElementById("editId").value = '';
     document.getElementById("saveBtn").textContent = "Save record";
     document.getElementById("cancelEditBtn").style.display = "none";
-    document.getElementById("messageInput").value = '';
+    document.getElementById("nameInput").value = '';
     document.getElementById("locationInput").value = '';
     document.getElementById("countryInput").value = '';
     document.getElementById("dobInput").value = '';
+    document.getElementById("cnicInput").value = '';
     document.getElementById("addressInput").value = '';
 }
 
 function saveOrUpdate() {
     const editId = document.getElementById("editId").value;
-    const message = document.getElementById("messageInput").value;
+    const message = document.getElementById("nameInput").value;
     const location = document.getElementById("locationInput").value;
     const country = document.getElementById("countryInput").value;
     const dob = document.getElementById("dobInput").value;
+    const cnicId = document.getElementById("cnicInput").value;
     const address = document.getElementById("addressInput").value;
-    const payload = { message, location, country, dob, address };
+    const payload = { message, location, country, dob, cnicId, address };
 
     if (editId) {
         fetch('/api/message/' + encodeURIComponent(editId), {
@@ -209,6 +272,137 @@ function deleteMessage(id) {
             loadMessages();
         } else alert(data.error || "Delete failed");
     });
+}
+
+// Load saved messages when the page loads or is refreshed
+document.addEventListener('DOMContentLoaded', () => {
+    loadMessages();
+    initMap();
+});
+
+// ---- Map & Route (Leaflet + OpenStreetMap, free) ----
+let map = null;
+let routeLayer = null;
+let routeMarkers = [];
+
+function initMap() {
+    map = new L.Map('map', {
+        center: [39, -98],
+        zoom: 3
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function geocodeAddress(item) {
+    const full = buildAddressQuery(item);
+    if (!full || full === 'unknown') return null;
+    const queries = [full];
+    const loc = (item.location || '').trim();
+    const country = (item.country || '').trim();
+    if (loc && country && full !== `${loc}, ${country}`) queries.push(`${loc}, ${country}`);
+    if (country && !queries.includes(country)) queries.push(country);
+    for (const q of queries) {
+        const r = await fetch('/api/geocode?q=' + encodeURIComponent(q));
+        const data = await r.json();
+        if (data && data.lat != null && data.lng != null) {
+            return [data.lat, data.lng];
+        }
+        await delay(1100);
+    }
+    return null;
+}
+
+async function showOnMap(item) {
+    if (!map) await initMap();
+    const coords = await geocodeAddress(item);
+    if (!coords) { alert('Could not find location: ' + buildAddressQuery(item)); return; }
+    L.marker(coords).addTo(map);
+    map.setView(coords, 12);
+}
+
+async function getRoute() {
+    const data = window.messagesData || [];
+    const fromIdx = document.getElementById('routeFrom').value;
+    const toIdx = document.getElementById('routeTo').value;
+    if (fromIdx === '' || toIdx === '' || fromIdx === toIdx) {
+        alert('Select different From and To locations.');
+        return;
+    }
+    const fromItem = data[Number(fromIdx)];
+    const toItem = data[Number(toIdx)];
+    if (!fromItem || !toItem) return;
+    const fromCoords = await geocodeAddress(fromItem);
+    await delay(1100);
+    const toCoords = await geocodeAddress(toItem);
+    if (!fromCoords || !toCoords) {
+        alert('Could not geocode one or both locations.');
+        return;
+    }
+    let coords = null;
+    try {
+        const r = await fetch(`/api/directions?from=${fromCoords[1]},${fromCoords[0]}&to=${toCoords[1]},${toCoords[0]}`);
+        const dir = await r.json();
+        if (dir.routes && dir.routes[0] && dir.routes[0].geometry && dir.routes[0].geometry.coordinates) {
+            coords = dir.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+        }
+    } catch (e) {
+        console.warn('OSRM failed, using straight line', e);
+    }
+    if (!coords) {
+        coords = [fromCoords, toCoords];
+    }
+    if (!map) await initMap();
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    routeMarkers.forEach(m => map.removeLayer(m));
+    routeMarkers = [];
+    routeLayer = L.polyline(coords, {
+        color: '#ef4444',
+        weight: 6,
+        opacity: 0.9
+    }).addTo(map).bringToFront();
+    const m1 = L.marker(fromCoords).addTo(map).bindPopup('Start');
+    const m2 = L.marker(toCoords).addTo(map).bindPopup('End');
+    routeMarkers = [m1, m2];
+    const bounds = L.latLngBounds(coords).pad(0.15);
+    map.fitBounds(bounds);
+    map.invalidateSize();
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+}
+
+async function testLahoreRoute() {
+    const edenAve = [31.498680, 74.417971];
+    const netsol = [31.496316, 74.421688];
+    const r = await fetch(`/api/directions?from=74.417971,31.498680&to=74.421688,31.496316`);
+    const dir = await r.json();
+    let coords = null;
+    if (dir.routes && dir.routes[0] && dir.routes[0].geometry && dir.routes[0].geometry.coordinates) {
+        coords = dir.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+    }
+    if (!coords) coords = [edenAve, netsol];
+    if (!map) await initMap();
+    if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+    routeMarkers.forEach(m => map.removeLayer(m));
+    routeMarkers = [];
+    routeLayer = L.polyline(coords, { color: '#ef4444', weight: 6, opacity: 0.9 }).addTo(map).bringToFront();
+    routeMarkers = [
+        L.marker(edenAve).addTo(map).bindPopup('Eden Avenue'),
+        L.marker(netsol).addTo(map).bindPopup('Netsol')
+    ];
+    map.fitBounds(L.latLngBounds(coords).pad(0.15));
+    map.invalidateSize();
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+}
+
+function clearRoute() {
+    if (map) {
+        if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+        routeMarkers.forEach(m => map.removeLayer(m));
+        routeMarkers = [];
+    }
 }
 </script>
 

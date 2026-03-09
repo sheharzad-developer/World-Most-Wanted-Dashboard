@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 
@@ -99,6 +100,47 @@ app.delete('/api/message/:id', async (req, res) => {
     res.json({ success: true });
 });
 
+
+// Nominatim (OpenStreetMap) geocoding - free, no API key (max 1 req/sec)
+app.get('/api/geocode', async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.status(400).json({ error: 'Missing query' });
+    const encoded = encodeURIComponent(q);
+    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`;
+    let resp = await fetch(url, {
+        headers: { 'User-Agent': 'MongoDB-Messages-App (learning project)' }
+    });
+    if (resp.status === 429) {
+        await new Promise(r => setTimeout(r, 2000));
+        resp = await fetch(url, {
+            headers: { 'User-Agent': 'MongoDB-Messages-App (learning project)' }
+        });
+    }
+    const data = await resp.json();
+    if (Array.isArray(data) && data[0] && data[0].lat && data[0].lon) {
+        return res.json({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+    }
+    res.json({});
+});
+
+// OSRM directions (Open Source Routing Machine) - free, no API key
+app.get('/api/directions', async (req, res) => {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: 'Missing from/to' });
+    const url = `https://router.project-osrm.org/route/v1/driving/${from};${to}?overview=full&geometries=geojson`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+        const resp = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeout);
+        const data = await resp.json();
+        res.json(data);
+    } catch (err) {
+        clearTimeout(timeout);
+        console.warn('OSRM request failed:', err.message);
+        res.json({ code: 'Error', message: err.message });
+    }
+});
 
 app.listen(3000, () => {
     console.log("Server running on http://localhost:3000");
