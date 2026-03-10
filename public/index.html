@@ -372,13 +372,23 @@ function loadMessages() {
     const loading = document.getElementById('tableLoading');
     loading.style.display = 'flex';
     fetch('/api/messages')
-    .then(res => res.json())
-    .then(data => {
-        window.messagesData = data;
-        try { localStorage.setItem(STORAGE_KEYS.messagesCache, JSON.stringify(data)); } catch (e) {}
-        renderTable();
+    .then(res => res.json().then(data => ({ ok: res.ok, data })).catch(() => ({ ok: false, data: { error: 'Invalid response' } })))
+    .then(({ ok, data }) => {
+        if (ok && Array.isArray(data)) {
+            window.messagesData = data;
+            try { localStorage.setItem(STORAGE_KEYS.messagesCache, JSON.stringify(data)); } catch (e) {}
+            renderTable();
+        } else {
+            window.messagesData = [];
+            renderTable();
+            showToast(data.error || 'Failed to load data', 'error');
+        }
     })
-    .catch(() => showToast('Failed to load data', 'error'))
+    .catch(() => {
+        window.messagesData = [];
+        renderTable();
+        showToast('Failed to load data (network error)', 'error');
+    })
     .finally(() => { loading.style.display = 'none'; });
 }
 
@@ -457,13 +467,17 @@ function saveOrUpdate() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
-        .then(res => res.json())
-        .then(data => {
-            showToast("Saved!", "success");
-            clearFormDraft();
-            loadMessages();
+        .then(res => res.json().then(data => ({ ok: res.ok, data })).catch(() => ({ ok: false, data: { error: 'Server error' } })))
+        .then(({ ok, data }) => {
+            if (ok && data.success !== false) {
+                showToast("Saved!", "success");
+                clearFormDraft();
+                loadMessages();
+            } else {
+                showToast(data.error || "Save failed", "error");
+            }
         })
-        .catch(() => showToast("Save failed", "error"));
+        .catch(() => showToast("Save failed (network or server error)", "error"));
     }
 }
 
