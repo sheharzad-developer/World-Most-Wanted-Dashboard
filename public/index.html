@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Full-stack dashboard: Node, Express, MongoDB, Leaflet. Add records, view on map, export CSV. Deployed on Vercel.">
     <title>World's Most Wanted Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
     <link rel="stylesheet" href="style.css">
     <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
 </head>
 <body>
+
+<div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
 <div class="page">
     <h1>World's Most Wanted Dashboard</h1>
@@ -47,24 +53,40 @@
 
     <div class="table-card">
         <div class="table-header">
-            <div class="table-header-title">Stored messages</div>
-            <div class="table-header-caption">Live view of documents in the <span class="pill">messages</span> collection.</div>
+            <div>
+                <div class="table-header-title">Stored records</div>
+                <div class="table-header-caption">Live view of documents in the <span class="pill">messages</span> collection.</div>
+            </div>
         </div>
-        <table id="messagesTable">
-            <thead>
-                <tr>
-                    <th>Message</th>
-                    <th>Location</th>
-                    <th>Country</th>
-                    <th>DOB</th>
-                    <th>CNIC ID</th>
-                    <th>Address</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody id="messagesBody">
-            </tbody>
-        </table>
+        <div class="stats-bar">
+            <span id="statRecords" class="stat-item">0 records</span>
+            <span class="stat-sep">·</span>
+            <span id="statCountries" class="stat-item">0 countries</span>
+            <span class="stat-sep">·</span>
+            <span id="statUpdated" class="stat-item">—</span>
+        </div>
+        <div class="table-toolbar">
+            <input type="text" id="searchInput" class="search-input" placeholder="Search by name, location, country, CNIC…" aria-label="Search records">
+            <button type="button" class="btn btn-secondary" onclick="exportToCsv()">Export CSV</button>
+        </div>
+        <div class="table-wrap">
+            <div id="tableLoading" class="table-loading" style="display: none;">Loading…</div>
+            <table id="messagesTable">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="message">Name <span class="sort-icon"></span></th>
+                        <th class="sortable" data-sort="location">Location <span class="sort-icon"></span></th>
+                        <th class="sortable" data-sort="country">Country <span class="sort-icon"></span></th>
+                        <th class="sortable" data-sort="dob">DOB <span class="sort-icon"></span></th>
+                        <th class="sortable" data-sort="cnicId">CNIC ID <span class="sort-icon"></span></th>
+                        <th>Address</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="messagesBody">
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div class="map-card">
@@ -91,11 +113,51 @@
         </div>
         <div id="map" class="map-container"></div>
     </div>
+
+    <details class="tech-stack" open>
+        <summary>Built with</summary>
+        <ul>
+            <li><strong>Backend:</strong> Node.js, Express</li>
+            <li><strong>Database:</strong> MongoDB</li>
+            <li><strong>Frontend:</strong> Vanilla JS, localStorage, responsive CSS</li>
+            <li><strong>Map:</strong> Leaflet, OpenStreetMap, OSRM routing</li>
+            <li><strong>Deploy:</strong> Vercel (serverless)</li>
+        </ul>
+    </details>
+</div>
+
+<div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle" hidden>
+    <div class="modal-backdrop" onclick="closeDeleteModal()"></div>
+    <div class="modal-content">
+        <h2 id="deleteModalTitle" class="modal-title">Delete record?</h2>
+        <p class="modal-text">This cannot be undone.</p>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+            <button type="button" class="btn btn-danger" id="deleteConfirmBtn">Delete</button>
+        </div>
+    </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const STORAGE_KEYS = { formDraft: 'worldWantedFormDraft', messagesCache: 'worldWantedMessagesCache' };
+let sortKey = '';
+let sortDir = 1; // 1 asc, -1 desc
+let pendingDeleteId = null;
+
+function showToast(message, type) {
+    type = type || 'info';
+    const container = document.getElementById('toastContainer');
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.setAttribute('role', 'status');
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 200);
+    }, 3200);
+}
 
 function saveFormDraft() {
     if (document.getElementById("editId").value) return;
@@ -153,14 +215,44 @@ function sendMessage() {
     })
     .then(res => res.json())
     .then(data => {
-        alert("Saved!");
+        showToast("Saved!", "success");
+    });
+}
+
+function getFilteredData() {
+    const data = window.messagesData || [];
+    const q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+    if (!q) return data;
+    return data.filter(item => {
+        const name = (item.message || '').toLowerCase();
+        const loc = (item.location || '').toLowerCase();
+        const country = (item.country || '').toLowerCase();
+        const cnic = (item.cnicId || '').toLowerCase();
+        const addr = (item.address || '').toLowerCase();
+        return name.includes(q) || loc.includes(q) || country.includes(q) || cnic.includes(q) || addr.includes(q);
     });
 }
 
 function renderTable() {
-    const data = window.messagesData || [];
+    let data = getFilteredData();
+    if (sortKey) {
+        data = [...data].sort((a, b) => {
+            const va = (a[sortKey] || '').toString();
+            const vb = (b[sortKey] || '').toString();
+            return sortDir * va.localeCompare(vb, undefined, { numeric: true });
+        });
+    }
     const tbody = document.getElementById("messagesBody");
     tbody.innerHTML = "";
+    if (data.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 7;
+        td.className = "empty-state";
+        td.textContent = window.messagesData.length === 0 ? "No records yet. Add one above." : "No matches for your search.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+    }
     data.forEach(item => {
         const tr = document.createElement("tr");
         const tdMessage = document.createElement("td");
@@ -193,7 +285,7 @@ function renderTable() {
         const delBtn = document.createElement("button");
         delBtn.className = "btn btn-secondary";
         delBtn.textContent = "Delete";
-        delBtn.onclick = () => deleteMessage(getMessageId(item));
+        delBtn.onclick = () => showDeleteModal(getMessageId(item));
         tdActions.appendChild(editBtn);
         tdActions.appendChild(mapBtn);
         tdActions.appendChild(delBtn);
@@ -201,16 +293,93 @@ function renderTable() {
         tbody.appendChild(tr);
     });
     populateRouteDropdowns();
+    updateStats();
+    updateSortUI();
+}
+
+function updateStats() {
+    const data = window.messagesData || [];
+    const countries = new Set(data.map(d => (d.country || '').trim()).filter(Boolean));
+    document.getElementById('statRecords').textContent = data.length + ' record' + (data.length !== 1 ? 's' : '');
+    document.getElementById('statCountries').textContent = countries.size + ' countr' + (countries.size !== 1 ? 'ies' : 'y');
+    const el = document.getElementById('statUpdated');
+    if (data.length) el.textContent = 'Updated just now';
+    else el.textContent = '—';
+}
+
+function updateSortUI() {
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('asc', 'desc');
+        if (th.dataset.sort === sortKey) th.classList.add(sortDir === 1 ? 'asc' : 'desc');
+    });
+}
+
+function exportToCsv() {
+    const data = window.messagesData || [];
+    if (!data.length) { showToast('No data to export', 'info'); return; }
+    const headers = ['Name', 'Location', 'Country', 'DOB', 'CNIC ID', 'Address'];
+    const row = (item) => [
+        item.message || '',
+        item.location || '',
+        item.country || '',
+        item.dob || '',
+        item.cnicId || '',
+        (item.address || '').replace(/"/g, '""')
+    ].map(c => '"' + c + '"').join(',');
+    const csv = [headers.join(','), ...data.map(row)].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'world-most-wanted-records-' + new Date().toISOString().slice(0,10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('CSV downloaded', 'success');
+}
+
+function showDeleteModal(id) {
+    pendingDeleteId = id;
+    const modal = document.getElementById('deleteModal');
+    modal.hidden = false;
+    document.getElementById('deleteConfirmBtn').onclick = confirmDelete;
+    document.addEventListener('keydown', handleModalEscape);
+}
+
+function closeDeleteModal() {
+    pendingDeleteId = null;
+    document.getElementById('deleteModal').hidden = true;
+    document.removeEventListener('keydown', handleModalEscape);
+}
+function handleModalEscape(e) {
+    if (e.key === 'Escape') closeDeleteModal();
+}
+
+function confirmDelete() {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    closeDeleteModal();
+    fetch('/api/message/' + id, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            loadMessages();
+            showToast('Record deleted', 'success');
+        } else showToast(data.error || 'Delete failed', 'error');
+    })
+    .catch(() => showToast('Delete failed', 'error'));
 }
 
 function loadMessages() {
+    const loading = document.getElementById('tableLoading');
+    loading.style.display = 'flex';
     fetch('/api/messages')
     .then(res => res.json())
     .then(data => {
         window.messagesData = data;
         try { localStorage.setItem(STORAGE_KEYS.messagesCache, JSON.stringify(data)); } catch (e) {}
         renderTable();
-    });
+    })
+    .catch(() => showToast('Failed to load data', 'error'))
+    .finally(() => { loading.style.display = 'none'; });
 }
 
 function buildAddressQuery(item) {
@@ -273,15 +442,15 @@ function saveOrUpdate() {
         .then(res => res.json().then(data => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
             if (ok && data.success) {
-                alert("Updated!");
+                showToast("Updated!", "success");
                 clearFormDraft();
                 cancelEdit();
                 loadMessages();
             } else {
-                alert(data.error || "Update failed");
+                showToast(data.error || "Update failed", "error");
             }
         })
-        .catch(() => alert("Update failed"));
+        .catch(() => showToast("Update failed", "error"));
     } else {
         fetch('/api/message', {
             method: 'POST',
@@ -290,23 +459,14 @@ function saveOrUpdate() {
         })
         .then(res => res.json())
         .then(data => {
-            alert("Saved!");
+            showToast("Saved!", "success");
             clearFormDraft();
             loadMessages();
-        });
+        })
+        .catch(() => showToast("Save failed", "error"));
     }
 }
 
-function deleteMessage(id) {
-    if (!confirm("Delete this record?")) return;
-    fetch('/api/message/' + id, { method: 'DELETE' })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            loadMessages();
-        } else alert(data.error || "Delete failed");
-    });
-}
 
 // Load saved messages when the page loads or is refreshed
 document.addEventListener('DOMContentLoaded', () => {
@@ -323,6 +483,15 @@ document.addEventListener('DOMContentLoaded', () => {
     ['nameInput', 'locationInput', 'countryInput', 'dobInput', 'cnicInput', 'addressInput'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('input', saveFormDraft);
+    });
+    document.getElementById('searchInput').addEventListener('input', renderTable);
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.dataset.sort;
+            if (sortKey === key) sortDir *= -1;
+            else { sortKey = key; sortDir = 1; }
+            renderTable();
+        });
     });
 });
 
@@ -365,7 +534,7 @@ async function geocodeAddress(item) {
 async function showOnMap(item) {
     if (!map) await initMap();
     const coords = await geocodeAddress(item);
-    if (!coords) { alert('Could not find location: ' + buildAddressQuery(item)); return; }
+    if (!coords) { showToast('Could not find location: ' + buildAddressQuery(item), 'error'); return; }
     L.marker(coords).addTo(map);
     map.setView(coords, 12);
 }
@@ -375,7 +544,7 @@ async function getRoute() {
     const fromIdx = document.getElementById('routeFrom').value;
     const toIdx = document.getElementById('routeTo').value;
     if (fromIdx === '' || toIdx === '' || fromIdx === toIdx) {
-        alert('Select different From and To locations.');
+        showToast('Select different From and To locations.', 'info');
         return;
     }
     const fromItem = data[Number(fromIdx)];
@@ -385,7 +554,7 @@ async function getRoute() {
     await delay(1100);
     const toCoords = await geocodeAddress(toItem);
     if (!fromCoords || !toCoords) {
-        alert('Could not geocode one or both locations.');
+        showToast('Could not geocode one or both locations.', 'error');
         return;
     }
     let coords = null;
